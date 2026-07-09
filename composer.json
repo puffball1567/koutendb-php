@@ -1,0 +1,33 @@
+{
+  "name": "rochedb/rochedb",
+  "description": "PHP FFI driver for RocheDB",
+  "type": "library",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/puffball1567/rochedb",
+  "keywords": [
+    "rochedb",
+    "database",
+    "nosql",
+    "ffi",
+    "rag",
+    "retrieval"
+  ],
+  "support": {
+    "source": "https://github.com/puffball1567/rochedb-php",
+    "issues": "https://github.com/puffball1567/rochedb-php/issues"
+  },
+  "require": {
+    "php": ">=8.2",
+    "ext-ffi": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "RocheDB\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "RocheDB\\Tests\\": "tests/"
+    }
+  }
+}

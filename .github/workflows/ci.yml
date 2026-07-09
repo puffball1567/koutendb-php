@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PHP driver
+        uses: actions/checkout@v4
+
+      - name: Checkout RocheDB core
+        uses: actions/checkout@v4
+        with:
+          repository: puffball1567/rochedb
+          path: rochedb-core
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.10"
+
+      - name: Install libsodium
+        run: sudo apt-get update && sudo apt-get install -y libsodium-dev
+
+      - name: Build RocheDB C ABI
+        run: |
+          cd rochedb-core
+          nimble install -y
+          nim c --app:lib -d:release --nimcache:/tmp/nimcache_roche_capi -o:lib/librochedb.so src/rochedb_capi.nim
+
+      - name: Validate composer metadata
+        run: composer validate --strict
+
+      - name: Lint PHP files
+        run: |
+          php -l src/RocheDB.php
+          php -l tests/driver_test.php
+          php -l examples/embedded.php
+
+      - name: Docker smoke test
+        run: ROCHEDB_CORE_DIR="${{ github.workspace }}/rochedb-core" ./docker-test.sh
