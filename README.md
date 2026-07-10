@@ -8,7 +8,7 @@ pretend RocheDB is an SQL database or an Eloquent model backend.
 
 ## Status
 
-- Package target: Composer / Packagist
+- Package: [Packagist `rochedb/rochedb`](https://packagist.org/packages/rochedb/rochedb)
 - Current mode: C ABI / FFI wrapper
 - PHP: 8.2+
 - Requires: `ext-ffi`
@@ -16,25 +16,13 @@ pretend RocheDB is an SQL database or an Eloquent model backend.
 
 ## Install
 
-Packagist publication is planned for this separate driver repository. Until
-then, use a path repository from your application:
-
-```json
-{
-  "repositories": [
-    { "type": "path", "url": "../rochedb-php" }
-  ],
-  "require": {
-    "rochedb/rochedb": "*"
-  }
-}
-```
-
-Then run:
+Install from Packagist:
 
 ```sh
-composer update rochedb/rochedb
+composer require rochedb/rochedb:^0.1
 ```
+
+For local development from a checkout, you can still use a Composer path repository.
 
 Build the RocheDB shared library first:
 
@@ -51,8 +39,7 @@ At runtime, make sure PHP can find both the driver and `librochedb.so`:
 LD_LIBRARY_PATH=/path/to/rochedb/lib php app.php
 ```
 
-Local PHP must have `ext-ffi` enabled. If it does not, use the Docker smoke test
-below.
+Local PHP must have `ext-ffi` enabled. If Composer reports `ext-ffi` as missing, enable PHP FFI for CLI and runtime use before installing in a real project. For repository verification without changing local PHP, use the Docker smoke test below.
 
 ## Example
 
