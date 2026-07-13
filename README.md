@@ -12,7 +12,7 @@ pretend RocheDB is an SQL database or an Eloquent model backend.
 - Current mode: C ABI / FFI wrapper
 - PHP: 8.2+
 - Requires: `ext-ffi`
-- RocheDB core: local shared library, usually `librochedb.so`
+- RocheDB core: local C ABI v2 shared library, RocheDB core v0.3.0+
 
 ## Install
 
@@ -61,7 +61,16 @@ $roundtrip = RocheId::parse((string) $id);
 $doc = $db->getJson($roundtrip);
 $view = $db->queryJson($id, "{ title }");
 
-$vecId = $db->putVec("docs/php", "hello", [1.0, 0.0]);
+$vecId = $db->putJsonVec("docs/php", [
+    "title" => "Vector-backed PHP document",
+    "kind" => "example",
+], [1.0, 0.0]);
+$encoded = $db->getEncoded($id);
+$page = $db->readRing("docs/php", [
+    "filter" => ["kind" => "example"],
+    "selection" => "{ title }",
+    "limit" => 10,
+]);
 $value = $db->get($vecId);
 $atlas = $db->atlas([1.0, 0.0], 8);
 $db->close();
@@ -88,8 +97,9 @@ mounts the RocheDB core checkout into the container.
 | Area | API |
 |---|---|
 | Open / connect | `RocheDB::open`, `openDir`, `connect`, `connectAuth` |
-| Writes | `put`, `putJson`, `putVec` |
-| Reads | `get`, `getJson`, `batchGet` |
+| Writes | `put`, `putCodec`, `putJson`, `putNif`, `putBif`, `putVec`, `putVecCodec`, `putJsonVec`, `putNifVec`, `putBifVec` |
+| Reads | `get`, `getEncoded`, `getJson`, `batchGet`, `readRing` |
+| Payload codecs | `EncodedPayload`, `raw`, `json`, `nif`, `bif` |
 | Projection | `query`, `queryJson` |
 | Retrieval | `retrieve`, `RetrieveResult`, `RocheHit` |
 | Atlas | `atlas` |

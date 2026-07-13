@@ -21,13 +21,24 @@ try {
     $doc = $db->getJson($parsed);
     $view = $db->queryJson($id, '{ title }');
 
-    $vecId = $db->putVec('docs/php', 'vector payload', [1.0, 0.0]);
+    $vecId = $db->putJsonVec('docs/php', [
+        'title' => 'Vector-backed PHP document',
+        'kind' => 'example',
+    ], [1.0, 0.0]);
+    $encoded = $db->getEncoded($id);
+    $page = $db->readRing('docs/php', [
+        'filter' => ['kind' => 'example'],
+        'selection' => '{ title }',
+        'limit' => 10,
+    ]);
     $result = $db->retrieve([1.0, 0.0], 'docs/php', 4);
 
     echo json_encode([
         'id' => (string) $id,
+        'codec' => $encoded?->codec,
         'title' => $doc['title'] ?? null,
         'view' => $view,
+        'readRingCount' => $page['count'],
         'vectorId' => (string) $vecId,
         'hits' => count($result->hits),
         'scanned' => $result->stats['scanned'],
