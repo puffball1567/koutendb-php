@@ -66,9 +66,22 @@ final class RetrieveResult
     }
 }
 
+final class EncodedPayload
+{
+    public function __construct(
+        public readonly string $payload,
+        public readonly string $codec,
+    ) {
+    }
+}
+
 final class RocheDB
 {
-    private const ABI_VERSION = 1;
+    private const ABI_VERSION = 2;
+    private const CODEC_RAW = 0;
+    private const CODEC_JSON = 1;
+    private const CODEC_NIF = 2;
+    private const CODEC_BIF = 3;
 
     private static ?FFI $ffi = null;
     private ?CData $handle;
@@ -156,10 +169,35 @@ final class RocheDB
         return self::idFromC($id);
     }
 
+    public function putCodec(string $ring, string $payload, string $codec): RocheId
+    {
+        $ffi = self::ffi();
+        $id = $ffi->new('roche_id');
+        $this->check($ffi->roche_put_codec(
+            $this->requireHandle(),
+            $ring,
+            $payload,
+            strlen($payload),
+            self::codecCode($codec),
+            FFI::addr($id),
+        ));
+        return self::idFromC($id);
+    }
+
     /** @param mixed $value */
     public function putJson(string $ring, mixed $value): RocheId
     {
-        return $this->put($ring, self::encodeJson($value));
+        return $this->putCodec($ring, self::encodeJson($value), 'json');
+    }
+
+    public function putNif(string $ring, string $payload): RocheId
+    {
+        return $this->putCodec($ring, $payload, 'nif');
+    }
+
+    public function putBif(string $ring, string $payload): RocheId
+    {
+        return $this->putCodec($ring, $payload, 'bif');
     }
 
     /** @param list<float|int> $vector */
@@ -179,6 +217,44 @@ final class RocheDB
             FFI::addr($id),
         ));
         return self::idFromC($id);
+    }
+
+    /** @param list<float|int> $vector */
+    public function putVecCodec(string $ring, string $payload, array $vector, string $codec): RocheId
+    {
+        $ffi = self::ffi();
+        $id = $ffi->new('roche_id');
+        $vec = self::floatArray($vector);
+        $vecPtr = count($vector) === 0 ? null : FFI::addr($vec[0]);
+        $this->check($ffi->roche_put_vec_codec(
+            $this->requireHandle(),
+            $ring,
+            $payload,
+            strlen($payload),
+            self::codecCode($codec),
+            $vecPtr,
+            count($vector),
+            FFI::addr($id),
+        ));
+        return self::idFromC($id);
+    }
+
+    /** @param mixed $value @param list<float|int> $vector */
+    public function putJsonVec(string $ring, mixed $value, array $vector): RocheId
+    {
+        return $this->putVecCodec($ring, self::encodeJson($value), $vector, 'json');
+    }
+
+    /** @param list<float|int> $vector */
+    public function putNifVec(string $ring, string $payload, array $vector): RocheId
+    {
+        return $this->putVecCodec($ring, $payload, $vector, 'nif');
+    }
+
+    /** @param list<float|int> $vector */
+    public function putBifVec(string $ring, string $payload, array $vector): RocheId
+    {
+        return $this->putVecCodec($ring, $payload, $vector, 'bif');
     }
 
     public function get(RocheId $id): ?string
@@ -205,6 +281,26 @@ final class RocheDB
     {
         $value = $this->get($id);
         return $value === null ? null : self::decodeJson($value);
+    }
+
+    public function getEncoded(RocheId $id): ?EncodedPayload
+    {
+        $ffi = self::ffi();
+        $len = $ffi->new('size_t[1]');
+        $codec = $ffi->new('int[1]');
+        $ptr = $ffi->roche_get_codec($this->requireHandle(), self::idToC($id), FFI::addr($len[0]), FFI::addr($codec[0]));
+        if ($ptr === null) {
+            $message = self::lastError()->getMessage();
+            if (str_contains($message, 'not found')) {
+                return null;
+            }
+            throw new RuntimeException($message);
+        }
+        try {
+            return new EncodedPayload(FFI::string($ptr, (int)$len[0]), self::codecName((int)$codec[0]));
+        } finally {
+            $ffi->roche_free($ptr);
+        }
     }
 
     /** @param list<RocheId> $ids @return list<string|null> */
@@ -250,6 +346,42 @@ final class RocheDB
     public function queryJson(RocheId $id, string $selection): mixed
     {
         return self::decodeJson($this->query($id, $selection));
+    }
+
+    /** @param array<string,mixed> $options @return array<string,mixed> */
+    public function readRing(string $ring, array $options = []): array
+    {
+        if (array_key_exists('sort', $options) && array_key_exists('rsort', $options)) {
+            throw new RocheDBException('readRing options cannot set both sort and rsort');
+        }
+        $ffi = self::ffi();
+        $len = $ffi->new('size_t[1]');
+        $filterJson = $options['filterJson'] ?? self::encodeFilterJson($options['filter'] ?? []);
+        $selection = (string)($options['selection'] ?? '');
+        $sortField = (string)($options['sort'] ?? $options['rsort'] ?? '');
+        $sortDesc = array_key_exists('sort', $options) ? 0 : 1;
+        $ptr = $ffi->roche_read_ring_json(
+            $this->requireHandle(),
+            $ring,
+            (string)$filterJson,
+            $selection,
+            (int)($options['limit'] ?? 100),
+            (string)($options['cursor'] ?? ''),
+            !empty($options['pagination']) ? 1 : 0,
+            (int)($options['page'] ?? 1),
+            (int)($options['pageLimit'] ?? 20),
+            $sortField,
+            $sortDesc,
+            FFI::addr($len[0]),
+        );
+        if ($ptr === null) {
+            throw self::lastError();
+        }
+        try {
+            return self::decodeJson(FFI::string($ptr, (int)$len[0]));
+        } finally {
+            $ffi->roche_free($ptr);
+        }
     }
 
     /** @param list<float|int> $vector */
@@ -386,7 +518,13 @@ final class RocheDB
     private static function lastError(): RuntimeException
     {
         $ptr = self::ffi()->roche_last_error();
-        $message = $ptr === null ? 'RocheDB C ABI error' : FFI::string($ptr);
+        if ($ptr === null) {
+            $message = 'RocheDB C ABI error';
+        } elseif (is_string($ptr)) {
+            $message = $ptr;
+        } else {
+            $message = FFI::string($ptr);
+        }
         return new RocheDBException($message === '' ? 'RocheDB C ABI error' : $message);
     }
 
@@ -408,6 +546,37 @@ final class RocheDB
         } catch (\JsonException $e) {
             throw new RocheDBException('failed to decode JSON: ' . $e->getMessage(), previous: $e);
         }
+    }
+
+    /** @param mixed $value */
+    private static function encodeFilterJson(mixed $value): string
+    {
+        if (is_array($value) && count($value) === 0) {
+            return '{}';
+        }
+        return self::encodeJson($value);
+    }
+
+    private static function codecCode(string $codec): int
+    {
+        return match ($codec) {
+            'raw' => self::CODEC_RAW,
+            'json' => self::CODEC_JSON,
+            'nif' => self::CODEC_NIF,
+            'bif' => self::CODEC_BIF,
+            default => throw new RocheDBException("unsupported payload codec: {$codec}"),
+        };
+    }
+
+    private static function codecName(int $codec): string
+    {
+        return match ($codec) {
+            self::CODEC_RAW => 'raw',
+            self::CODEC_JSON => 'json',
+            self::CODEC_NIF => 'nif',
+            self::CODEC_BIF => 'bif',
+            default => 'unknown',
+        };
     }
 
     private static function ffi(?string $lib = null): FFI
@@ -510,12 +679,16 @@ int         roche_ring_configure(void *db, const char *ring, double period);
 int         roche_set_galaxy_description(void *db, const char *description);
 int         roche_set_ring_description(void *db, const char *ring, const char *description);
 int         roche_put(void *db, const char *ring, const void *data, size_t len, roche_id *out_id);
+int         roche_put_codec(void *db, const char *ring, const void *data, size_t len, int codec, roche_id *out_id);
 int         roche_put_vec(void *db, const char *ring, const void *data, size_t len, const float *vec, size_t vec_len, roche_id *out_id);
+int         roche_put_vec_codec(void *db, const char *ring, const void *data, size_t len, int codec, const float *vec, size_t vec_len, roche_id *out_id);
 void       *roche_get(void *db, roche_id id, size_t *out_len);
+void       *roche_get_codec(void *db, roche_id id, size_t *out_len, int *out_codec);
 void        roche_free(void *p);
 roche_batch_result *roche_batch_get(void *db, const roche_id *ids, size_t ids_len);
 void        roche_batch_get_free(roche_batch_result *r);
 void       *roche_query(void *db, roche_id id, const char *selection, size_t *out_len);
+void       *roche_read_ring_json(void *db, const char *ring, const char *filter_json, const char *selection, int limit, const char *cursor, int pagination, int page, int page_limit, const char *sort_field, int sort_desc, size_t *out_len);
 roche_retrieve_result *roche_retrieve(void *db, const float *vec, size_t vec_len, const char *ring, int budget, int top_rings, int focus);
 void        roche_retrieve_free(roche_retrieve_result *r);
 void       *roche_atlas(void *db, const float *query_vec, size_t query_vec_len, int max_centroid_dims, size_t *out_len);
