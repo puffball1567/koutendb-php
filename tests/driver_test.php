@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . '/../src/RocheDB.php';
+require __DIR__ . '/../src/KoutenDB.php';
 
-use RocheDB\RocheDB;
-use RocheDB\RocheId;
+use KoutenDB\KoutenDB;
+use KoutenDB\KoutenId;
 
 function assert_true(bool $value, string $message): void
 {
@@ -14,13 +14,13 @@ function assert_true(bool $value, string $message): void
     }
 }
 
-$db = RocheDB::open(8);
+$db = KoutenDB::open(8);
 $db->setGalaxyDescription('PHP test galaxy');
 $db->setRingDescription('docs/php', 'PHP driver documents');
 $db->configureRing('docs/php', 30.0);
 
 $id = $db->putVec('docs/php', 'hello php', [1.0, 0.0]);
-assert_true((string) RocheId::parse((string) $id) === (string) $id, 'id parse roundtrip');
+assert_true((string) KoutenId::parse((string) $id) === (string) $id, 'id parse roundtrip');
 assert_true($db->get($id) === 'hello php', 'get roundtrip');
 
 $batch = $db->batchGet([$id]);
@@ -66,6 +66,10 @@ assert_true(str_contains($atlas, 'PHP driver documents'), 'atlas ring descriptio
 $node = $db->locate($id);
 assert_true($node >= 0, 'locate');
 assert_true($db->nextVisit($id, $node) >= 0.0, 'next visit');
+
+$t0 = $db->now();
+$db->advance(1.5);
+assert_true($db->now() - $t0 >= 1.5 - 1e-9, 'advance moves the clock');
 
 $db->close();
 echo "PHP driver OK\n";

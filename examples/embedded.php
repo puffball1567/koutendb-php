@@ -1,23 +1,23 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . '/../src/RocheDB.php';
+require __DIR__ . '/../src/KoutenDB.php';
 
-use RocheDB\RocheDB;
-use RocheDB\RocheId;
+use KoutenDB\KoutenDB;
+use KoutenDB\KoutenId;
 
-$db = RocheDB::open();
+$db = KoutenDB::open();
 
 try {
     $db->setGalaxyDescription('Example PHP knowledge galaxy');
     $db->setRingDescription('docs/php', 'PHP driver example documents');
 
     $id = $db->putJson('docs/php', [
-        'title' => 'RocheDB PHP driver',
+        'title' => 'KoutenDB PHP driver',
         'kind' => 'example',
     ]);
 
-    $parsed = RocheId::parse((string) $id);
+    $parsed = KoutenId::parse((string) $id);
     $doc = $db->getJson($parsed);
     $view = $db->queryJson($id, '{ title }');
 

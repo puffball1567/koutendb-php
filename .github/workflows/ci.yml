@@ -20,11 +20,11 @@ jobs:
       - name: Checkout PHP driver
         uses: actions/checkout@v4
 
-      - name: Checkout RocheDB core
+      - name: Checkout KoutenDB core
         uses: actions/checkout@v4
         with:
-          repository: puffball1567/rochedb
-          path: rochedb-core
+          repository: puffball1567/koutendb
+          path: koutendb-core
 
       - name: Install Nim
         uses: jiro4989/setup-nim-action@v2
@@ -34,20 +34,20 @@ jobs:
       - name: Install libsodium
         run: sudo apt-get update && sudo apt-get install -y libsodium-dev
 
-      - name: Build RocheDB C ABI
+      - name: Build KoutenDB C ABI
         run: |
-          cd rochedb-core
+          cd koutendb-core
           nimble install -y
-          nim c --app:lib -d:release --nimcache:/tmp/nimcache_roche_capi -o:lib/librochedb.so src/rochedb_capi.nim
+          nim c --app:lib -d:release --nimcache:/tmp/nimcache_kouten_capi -o:lib/libkoutendb.so src/koutendb_capi.nim
 
       - name: Validate composer metadata
         run: composer validate --strict
 
       - name: Lint PHP files
         run: |
-          php -l src/RocheDB.php
+          php -l src/KoutenDB.php
           php -l tests/driver_test.php
           php -l examples/embedded.php
 
       - name: Docker smoke test
-        run: ROCHEDB_CORE_DIR="${{ github.workspace }}/rochedb-core" ./docker-test.sh
+        run: KOUTENDB_CORE_DIR="${{ github.workspace }}/koutendb-core" ./docker-test.sh
