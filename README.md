@@ -1,42 +1,42 @@
-# RocheDB PHP Driver
+# KoutenDB PHP Driver
 
-PHP FFI driver for [RocheDB](https://github.com/puffball1567/rochedb).
+PHP FFI driver for [KoutenDB](https://github.com/puffball1567/koutendb).
 
-This package wraps the RocheDB C ABI. It is intended as the foundation for
+This package wraps the KoutenDB C ABI. It is intended as the foundation for
 plain PHP integrations and later Laravel/Symfony adapters. It does not try to
-pretend RocheDB is an SQL database or an Eloquent model backend.
+pretend KoutenDB is an SQL database or an Eloquent model backend.
 
 ## Status
 
-- Package: [Packagist `rochedb/rochedb`](https://packagist.org/packages/rochedb/rochedb)
+- Package: [Packagist `koutendb/koutendb`](https://packagist.org/packages/koutendb/koutendb)
 - Current mode: C ABI / FFI wrapper
 - PHP: 8.2+
 - Requires: `ext-ffi`
-- RocheDB core: local C ABI v2 shared library, RocheDB core v0.3.0+
+- KoutenDB core: local C ABI v2 shared library, KoutenDB core v0.3.0+
 
 ## Install
 
 Install from Packagist:
 
 ```sh
-composer require rochedb/rochedb:^0.1
+composer require koutendb/koutendb:^0.1
 ```
 
 For local development from a checkout, you can still use a Composer path repository.
 
-Build the RocheDB shared library first:
+Build the KoutenDB shared library first:
 
 ```sh
-git clone https://github.com/puffball1567/rochedb.git
-cd rochedb
+git clone https://github.com/puffball1567/koutendb.git
+cd koutendb
 nimble install -y
-nim c --app:lib -d:release --nimcache:/tmp/nimcache_roche_capi -o:lib/librochedb.so src/rochedb_capi.nim
+nim c --app:lib -d:release --nimcache:/tmp/nimcache_kouten_capi -o:lib/libkoutendb.so src/koutendb_capi.nim
 ```
 
-At runtime, make sure PHP can find both the driver and `librochedb.so`:
+At runtime, make sure PHP can find both the driver and `libkoutendb.so`:
 
 ```sh
-LD_LIBRARY_PATH=/path/to/rochedb/lib php app.php
+LD_LIBRARY_PATH=/path/to/koutendb/lib php app.php
 ```
 
 Local PHP must have `ext-ffi` enabled. If Composer reports `ext-ffi` as missing, enable PHP FFI for CLI and runtime use before installing in a real project. For repository verification without changing local PHP, use the Docker smoke test below.
@@ -45,10 +45,10 @@ Local PHP must have `ext-ffi` enabled. If Composer reports `ext-ffi` as missing,
 
 ```php
 <?php
-use RocheDB\RocheDB;
-use RocheDB\RocheId;
+use KoutenDB\KoutenDB;
+use KoutenDB\KoutenId;
 
-$db = RocheDB::open(8, "/path/to/rochedb/lib/librochedb.so");
+$db = KoutenDB::open(8, "/path/to/koutendb/lib/libkoutendb.so");
 $db->setGalaxyDescription("Product and support knowledge");
 $db->setRingDescription("docs", "Documentation ring");
 
@@ -57,7 +57,7 @@ $id = $db->putJson("docs/php", [
     "kind" => "example",
 ]);
 
-$roundtrip = RocheId::parse((string) $id);
+$roundtrip = KoutenId::parse((string) $id);
 $doc = $db->getJson($roundtrip);
 $view = $db->queryJson($id, "{ title }");
 
@@ -79,39 +79,63 @@ $db->close();
 ## Test
 
 ```bash
-cd /path/to/rochedb
-nim c --app:lib -d:release --nimcache:/tmp/nimcache_roche_capi -o:lib/librochedb.so src/rochedb_capi.nim
+cd /path/to/koutendb
+nim c --app:lib -d:release --nimcache:/tmp/nimcache_kouten_capi -o:lib/libkoutendb.so src/koutendb_capi.nim
 ```
 
 From this driver repository:
 
 ```sh
-ROCHEDB_CORE_DIR=/path/to/rochedb ./docker-test.sh
+KOUTENDB_CORE_DIR=/path/to/koutendb ./docker-test.sh
 ```
 
 `docker-test.sh` builds a small `php:8.3-cli` based image with FFI enabled and
-mounts the RocheDB core checkout into the container.
+mounts the KoutenDB core checkout into the container.
 
 ## Current API
 
 | Area | API |
 |---|---|
-| Open / connect | `RocheDB::open`, `openDir`, `connect`, `connectAuth` |
+| Open / connect | `KoutenDB::open`, `openDir`, `connect`, `connectAuth` |
+| TLS connect | `connectAuthTls`, `connectAuthTlsInsecure` |
 | Writes | `put`, `putCodec`, `putJson`, `putNif`, `putBif`, `putVec`, `putVecCodec`, `putJsonVec`, `putNifVec`, `putBifVec` |
 | Reads | `get`, `getEncoded`, `getJson`, `batchGet`, `readRing` |
 | Payload codecs | `EncodedPayload`, `raw`, `json`, `nif`, `bif` |
 | Projection | `query`, `queryJson` |
-| Retrieval | `retrieve`, `RetrieveResult`, `RocheHit` |
+| Retrieval | `retrieve`, `RetrieveResult`, `KoutenHit` |
 | Atlas | `atlas` |
 | Metadata | `configureRing`, `setGalaxyDescription`, `setRingDescription` |
 | Orbit helpers | `locate`, `nextVisit`, `nextJoin` |
-| IDs | `RocheId`, `RocheId::parse`, `RocheId::__toString` |
-| Errors | `RocheDBException` |
+| IDs | `KoutenId`, `KoutenId::parse`, `KoutenId::__toString` |
+| Errors | `KoutenDBException` |
+
+## TLS
+
+TLS requires an KoutenDB core built with `-d:ssl`. The shared library from
+`scripts/build_capi.sh` is built with it; a library built without it fails a TLS
+connect with `TLS support requires building KoutenDB with -d:ssl`.
+
+To reach a server whose certificate is signed by a private CA — or is
+self-signed — point at the certificate PEM. Verification stays on:
+
+```php
+$db = KoutenDB::connectAuthTls(
+    '127.0.0.1:17651',
+    'alice',
+    'secret',
+    tlsCaFile: '/path/to/server.crt',
+);
+```
+
+`connectAuthTlsInsecure()` (or `connectAuthTls(..., tlsInsecureSkipVerify: true)`)
+disables certificate verification. The connection is then encrypted but
+unauthenticated and trivially impersonable, so it is for local smoke tests only
+— never a production server. Prefer a `tlsCaFile` for self-signed certificates.
 
 ## Laravel Direction
 
 Laravel support should live in a separate thin adapter, likely
-`rochedb-laravel`. The PHP driver should stay framework-neutral. The Laravel
+`koutendb-laravel`. The PHP driver should stay framework-neutral. The Laravel
 package can provide a service provider, facade, configuration, and a more
 Laravel-shaped API for persistent semantic state, context, and retrieval
 working sets. It should not try to emulate Eloquent.

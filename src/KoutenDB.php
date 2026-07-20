@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace RocheDB;
+namespace KoutenDB;
 
 use FFI;
 use FFI\CData;
 use RuntimeException;
 
-final class RocheDBException extends RuntimeException
+final class KoutenDBException extends RuntimeException
 {
 }
 
-final class RocheId
+final class KoutenId
 {
     public function __construct(
         public readonly int|string $parent,
@@ -25,7 +25,7 @@ final class RocheId
     {
         $parts = explode(':', $value);
         if (count($parts) !== 4) {
-            throw new RocheDBException("invalid RocheDB id '{$value}': expected parent:epoch:seq:tWrite");
+            throw new KoutenDBException("invalid KoutenDB id '{$value}': expected parent:epoch:seq:tWrite");
         }
 
         if (
@@ -34,7 +34,7 @@ final class RocheId
             !ctype_digit($parts[2]) ||
             !is_numeric($parts[3])
         ) {
-            throw new RocheDBException("invalid RocheDB id '{$value}': fields must be numeric");
+            throw new KoutenDBException("invalid KoutenDB id '{$value}': fields must be numeric");
         }
 
         return new self($parts[0], (int)$parts[1], (int)$parts[2], (float)$parts[3]);
@@ -46,10 +46,10 @@ final class RocheId
     }
 }
 
-final class RocheHit
+final class KoutenHit
 {
     public function __construct(
-        public readonly RocheId $id,
+        public readonly KoutenId $id,
         public readonly float $score,
         public readonly string $payload,
     ) {
@@ -58,7 +58,7 @@ final class RocheHit
 
 final class RetrieveResult
 {
-    /** @param list<RocheHit> $hits */
+    /** @param list<KoutenHit> $hits */
     public function __construct(
         public readonly array $hits,
         public readonly array $stats,
@@ -75,7 +75,7 @@ final class EncodedPayload
     }
 }
 
-final class RocheDB
+final class KoutenDB
 {
     private const ABI_VERSION = 2;
     private const CODEC_RAW = 0;
@@ -99,7 +99,7 @@ final class RocheDB
     public static function open(int $nodes = 8, ?string $lib = null): self
     {
         $ffi = self::ffi($lib);
-        $handle = $ffi->roche_open($nodes);
+        $handle = $ffi->kouten_open($nodes);
         if ($handle === null) {
             throw self::lastError();
         }
@@ -109,7 +109,7 @@ final class RocheDB
     public static function openDir(int $nodes, string $dir, ?string $lib = null): self
     {
         $ffi = self::ffi($lib);
-        $handle = $ffi->roche_open_dir($nodes, $dir);
+        $handle = $ffi->kouten_open_dir($nodes, $dir);
         if ($handle === null) {
             throw self::lastError();
         }
@@ -126,7 +126,7 @@ final class RocheDB
         ?string $lib = null,
     ): self {
         $ffi = self::ffi($lib);
-        $handle = $ffi->roche_connect_auth($peers, $username, $password, $authToken, $secretKey, $galaxy);
+        $handle = $ffi->kouten_connect_auth($peers, $username, $password, $authToken, $secretKey, $galaxy);
         if ($handle === null) {
             throw self::lastError();
         }
@@ -138,42 +138,114 @@ final class RocheDB
         return self::connectAuth($peers, lib: $lib);
     }
 
+    /**
+     * Authenticated cluster connection with TLS. Enabling TLS requires a
+     * KoutenDB core built with -d:ssl.
+     *
+     * $tlsCaFile verifies the server against a CA or self-signed certificate
+     * PEM with verification left on, which is the right way to reach a server
+     * with a private CA or self-signed certificate.
+     *
+     * $tlsInsecureSkipVerify disables certificate verification entirely. The
+     * connection is then encrypted but unauthenticated and trivially
+     * impersonable, so it is for local smoke tests only — never a production
+     * server. Prefer $tlsCaFile for self-signed certificates. See also
+     * self::connectAuthTlsInsecure().
+     */
+    public static function connectAuthTls(
+        string $peers,
+        string $username = '',
+        string $password = '',
+        string $authToken = '',
+        string $secretKey = '',
+        string $galaxy = '',
+        string $tlsCaFile = '',
+        string $tlsServerName = '',
+        bool $tlsInsecureSkipVerify = false,
+        ?string $lib = null,
+    ): self {
+        $ffi = self::ffi($lib);
+        $handle = $ffi->kouten_connect_auth_tls(
+            $peers,
+            $username,
+            $password,
+            $authToken,
+            $secretKey,
+            $galaxy,
+            1,
+            $tlsCaFile,
+            $tlsServerName,
+            $tlsInsecureSkipVerify ? 1 : 0,
+        );
+        if ($handle === null) {
+            throw self::lastError();
+        }
+        return new self($handle);
+    }
+
+    /**
+     * TLS connection with certificate verification disabled. The name is a
+     * warning: the connection is encrypted but unauthenticated. Local smoke
+     * tests only — never a production server. Use connectAuthTls() with a
+     * $tlsCaFile for self-signed certificates.
+     */
+    public static function connectAuthTlsInsecure(
+        string $peers,
+        string $username = '',
+        string $password = '',
+        string $authToken = '',
+        string $secretKey = '',
+        string $galaxy = '',
+        ?string $lib = null,
+    ): self {
+        return self::connectAuthTls(
+            $peers,
+            $username,
+            $password,
+            $authToken,
+            $secretKey,
+            $galaxy,
+            tlsInsecureSkipVerify: true,
+            lib: $lib,
+        );
+    }
+
     public function close(): void
     {
         if ($this->handle !== null) {
-            self::ffi()->roche_close($this->handle);
+            self::ffi()->kouten_close($this->handle);
             $this->handle = null;
         }
     }
 
     public function configureRing(string $ring, float $period): void
     {
-        $this->check(self::ffi()->roche_ring_configure($this->requireHandle(), $ring, $period));
+        $this->check(self::ffi()->kouten_ring_configure($this->requireHandle(), $ring, $period));
     }
 
     public function setGalaxyDescription(string $description): void
     {
-        $this->check(self::ffi()->roche_set_galaxy_description($this->requireHandle(), $description));
+        $this->check(self::ffi()->kouten_set_galaxy_description($this->requireHandle(), $description));
     }
 
     public function setRingDescription(string $ring, string $description): void
     {
-        $this->check(self::ffi()->roche_set_ring_description($this->requireHandle(), $ring, $description));
+        $this->check(self::ffi()->kouten_set_ring_description($this->requireHandle(), $ring, $description));
     }
 
-    public function put(string $ring, string $payload): RocheId
+    public function put(string $ring, string $payload): KoutenId
     {
         $ffi = self::ffi();
-        $id = $ffi->new('roche_id');
-        $this->check($ffi->roche_put($this->requireHandle(), $ring, $payload, strlen($payload), FFI::addr($id)));
+        $id = $ffi->new('kouten_id');
+        $this->check($ffi->kouten_put($this->requireHandle(), $ring, $payload, strlen($payload), FFI::addr($id)));
         return self::idFromC($id);
     }
 
-    public function putCodec(string $ring, string $payload, string $codec): RocheId
+    public function putCodec(string $ring, string $payload, string $codec): KoutenId
     {
         $ffi = self::ffi();
-        $id = $ffi->new('roche_id');
-        $this->check($ffi->roche_put_codec(
+        $id = $ffi->new('kouten_id');
+        $this->check($ffi->kouten_put_codec(
             $this->requireHandle(),
             $ring,
             $payload,
@@ -185,29 +257,29 @@ final class RocheDB
     }
 
     /** @param mixed $value */
-    public function putJson(string $ring, mixed $value): RocheId
+    public function putJson(string $ring, mixed $value): KoutenId
     {
         return $this->putCodec($ring, self::encodeJson($value), 'json');
     }
 
-    public function putNif(string $ring, string $payload): RocheId
+    public function putNif(string $ring, string $payload): KoutenId
     {
         return $this->putCodec($ring, $payload, 'nif');
     }
 
-    public function putBif(string $ring, string $payload): RocheId
+    public function putBif(string $ring, string $payload): KoutenId
     {
         return $this->putCodec($ring, $payload, 'bif');
     }
 
     /** @param list<float|int> $vector */
-    public function putVec(string $ring, string $payload, array $vector): RocheId
+    public function putVec(string $ring, string $payload, array $vector): KoutenId
     {
         $ffi = self::ffi();
-        $id = $ffi->new('roche_id');
+        $id = $ffi->new('kouten_id');
         $vec = self::floatArray($vector);
         $vecPtr = count($vector) === 0 ? null : FFI::addr($vec[0]);
-        $this->check($ffi->roche_put_vec(
+        $this->check($ffi->kouten_put_vec(
             $this->requireHandle(),
             $ring,
             $payload,
@@ -220,13 +292,13 @@ final class RocheDB
     }
 
     /** @param list<float|int> $vector */
-    public function putVecCodec(string $ring, string $payload, array $vector, string $codec): RocheId
+    public function putVecCodec(string $ring, string $payload, array $vector, string $codec): KoutenId
     {
         $ffi = self::ffi();
-        $id = $ffi->new('roche_id');
+        $id = $ffi->new('kouten_id');
         $vec = self::floatArray($vector);
         $vecPtr = count($vector) === 0 ? null : FFI::addr($vec[0]);
-        $this->check($ffi->roche_put_vec_codec(
+        $this->check($ffi->kouten_put_vec_codec(
             $this->requireHandle(),
             $ring,
             $payload,
@@ -240,28 +312,28 @@ final class RocheDB
     }
 
     /** @param mixed $value @param list<float|int> $vector */
-    public function putJsonVec(string $ring, mixed $value, array $vector): RocheId
+    public function putJsonVec(string $ring, mixed $value, array $vector): KoutenId
     {
         return $this->putVecCodec($ring, self::encodeJson($value), $vector, 'json');
     }
 
     /** @param list<float|int> $vector */
-    public function putNifVec(string $ring, string $payload, array $vector): RocheId
+    public function putNifVec(string $ring, string $payload, array $vector): KoutenId
     {
         return $this->putVecCodec($ring, $payload, $vector, 'nif');
     }
 
     /** @param list<float|int> $vector */
-    public function putBifVec(string $ring, string $payload, array $vector): RocheId
+    public function putBifVec(string $ring, string $payload, array $vector): KoutenId
     {
         return $this->putVecCodec($ring, $payload, $vector, 'bif');
     }
 
-    public function get(RocheId $id): ?string
+    public function get(KoutenId $id): ?string
     {
         $ffi = self::ffi();
         $len = $ffi->new('size_t[1]');
-        $ptr = $ffi->roche_get($this->requireHandle(), self::idToC($id), FFI::addr($len[0]));
+        $ptr = $ffi->kouten_get($this->requireHandle(), self::idToC($id), FFI::addr($len[0]));
         if ($ptr === null) {
             $message = self::lastError()->getMessage();
             if (str_contains($message, 'not found')) {
@@ -272,23 +344,23 @@ final class RocheDB
         try {
             return FFI::string($ptr, (int)$len[0]);
         } finally {
-            $ffi->roche_free($ptr);
+            $ffi->kouten_free($ptr);
         }
     }
 
     /** @return mixed|null */
-    public function getJson(RocheId $id): mixed
+    public function getJson(KoutenId $id): mixed
     {
         $value = $this->get($id);
         return $value === null ? null : self::decodeJson($value);
     }
 
-    public function getEncoded(RocheId $id): ?EncodedPayload
+    public function getEncoded(KoutenId $id): ?EncodedPayload
     {
         $ffi = self::ffi();
         $len = $ffi->new('size_t[1]');
         $codec = $ffi->new('int[1]');
-        $ptr = $ffi->roche_get_codec($this->requireHandle(), self::idToC($id), FFI::addr($len[0]), FFI::addr($codec[0]));
+        $ptr = $ffi->kouten_get_codec($this->requireHandle(), self::idToC($id), FFI::addr($len[0]), FFI::addr($codec[0]));
         if ($ptr === null) {
             $message = self::lastError()->getMessage();
             if (str_contains($message, 'not found')) {
@@ -299,19 +371,19 @@ final class RocheDB
         try {
             return new EncodedPayload(FFI::string($ptr, (int)$len[0]), self::codecName((int)$codec[0]));
         } finally {
-            $ffi->roche_free($ptr);
+            $ffi->kouten_free($ptr);
         }
     }
 
-    /** @param list<RocheId> $ids @return list<string|null> */
+    /** @param list<KoutenId> $ids @return list<string|null> */
     public function batchGet(array $ids): array
     {
         $ffi = self::ffi();
-        $arr = $ffi->new('roche_id[' . max(1, count($ids)) . ']');
+        $arr = $ffi->new('kouten_id[' . max(1, count($ids)) . ']');
         foreach ($ids as $i => $id) {
             $arr[$i] = self::idToC($id);
         }
-        $res = $ffi->roche_batch_get($this->requireHandle(), count($ids) === 0 ? null : FFI::addr($arr[0]), count($ids));
+        $res = $ffi->kouten_batch_get($this->requireHandle(), count($ids) === 0 ? null : FFI::addr($arr[0]), count($ids));
         if ($res === null) {
             throw self::lastError();
         }
@@ -323,27 +395,27 @@ final class RocheDB
             }
             return $out;
         } finally {
-            $ffi->roche_batch_get_free($res);
+            $ffi->kouten_batch_get_free($res);
         }
     }
 
-    public function query(RocheId $id, string $selection): string
+    public function query(KoutenId $id, string $selection): string
     {
         $ffi = self::ffi();
         $len = $ffi->new('size_t[1]');
-        $ptr = $ffi->roche_query($this->requireHandle(), self::idToC($id), $selection, FFI::addr($len[0]));
+        $ptr = $ffi->kouten_query($this->requireHandle(), self::idToC($id), $selection, FFI::addr($len[0]));
         if ($ptr === null) {
             throw self::lastError();
         }
         try {
             return FFI::string($ptr, (int)$len[0]);
         } finally {
-            $ffi->roche_free($ptr);
+            $ffi->kouten_free($ptr);
         }
     }
 
     /** @return mixed */
-    public function queryJson(RocheId $id, string $selection): mixed
+    public function queryJson(KoutenId $id, string $selection): mixed
     {
         return self::decodeJson($this->query($id, $selection));
     }
@@ -352,7 +424,7 @@ final class RocheDB
     public function readRing(string $ring, array $options = []): array
     {
         if (array_key_exists('sort', $options) && array_key_exists('rsort', $options)) {
-            throw new RocheDBException('readRing options cannot set both sort and rsort');
+            throw new KoutenDBException('readRing options cannot set both sort and rsort');
         }
         $ffi = self::ffi();
         $len = $ffi->new('size_t[1]');
@@ -360,7 +432,7 @@ final class RocheDB
         $selection = (string)($options['selection'] ?? '');
         $sortField = (string)($options['sort'] ?? $options['rsort'] ?? '');
         $sortDesc = array_key_exists('sort', $options) ? 0 : 1;
-        $ptr = $ffi->roche_read_ring_json(
+        $ptr = $ffi->kouten_read_ring_json(
             $this->requireHandle(),
             $ring,
             (string)$filterJson,
@@ -380,7 +452,7 @@ final class RocheDB
         try {
             return self::decodeJson(FFI::string($ptr, (int)$len[0]));
         } finally {
-            $ffi->roche_free($ptr);
+            $ffi->kouten_free($ptr);
         }
     }
 
@@ -389,7 +461,7 @@ final class RocheDB
     {
         $ffi = self::ffi();
         $vec = self::floatArray($vector);
-        $res = $ffi->roche_retrieve(
+        $res = $ffi->kouten_retrieve(
             $this->requireHandle(),
             count($vector) === 0 ? null : FFI::addr($vec[0]),
             count($vector),
@@ -405,7 +477,7 @@ final class RocheDB
             $hits = [];
             for ($i = 0; $i < (int)$res->len; $i++) {
                 $hit = $res->hits[$i];
-                $hits[] = new RocheHit(
+                $hits[] = new KoutenHit(
                     self::idFromC($hit->id),
                     (float)$hit->score,
                     $hit->payload === null ? '' : FFI::string($hit->payload, (int)$hit->payload_len),
@@ -423,7 +495,7 @@ final class RocheDB
                 'candidateReduction' => (float)$res->candidate_reduction,
             ]);
         } finally {
-            $ffi->roche_retrieve_free($res);
+            $ffi->kouten_retrieve_free($res);
         }
     }
 
@@ -433,7 +505,7 @@ final class RocheDB
         $ffi = self::ffi();
         $vec = self::floatArray($queryVector);
         $len = $ffi->new('size_t[1]');
-        $ptr = $ffi->roche_atlas(
+        $ptr = $ffi->kouten_atlas(
             $this->requireHandle(),
             count($queryVector) === 0 ? null : FFI::addr($vec[0]),
             count($queryVector),
@@ -446,31 +518,41 @@ final class RocheDB
         try {
             return FFI::string($ptr, (int)$len[0]);
         } finally {
-            $ffi->roche_free($ptr);
+            $ffi->kouten_free($ptr);
         }
     }
 
-    public function locate(RocheId $id, float $at = -1.0): int
+    public function now(): float
     {
-        $node = self::ffi()->roche_locate($this->requireHandle(), self::idToC($id), $at);
+        return (float)self::ffi()->kouten_now($this->requireHandle());
+    }
+
+    public function advance(float $dt): void
+    {
+        self::ffi()->kouten_advance($this->requireHandle(), $dt);
+    }
+
+    public function locate(KoutenId $id, float $at = -1.0): int
+    {
+        $node = self::ffi()->kouten_locate($this->requireHandle(), self::idToC($id), $at);
         if ($node < 0) {
             throw self::lastError();
         }
         return (int)$node;
     }
 
-    public function nextVisit(RocheId $id, int $node): float
+    public function nextVisit(KoutenId $id, int $node): float
     {
-        $time = self::ffi()->roche_next_visit($this->requireHandle(), self::idToC($id), $node);
+        $time = self::ffi()->kouten_next_visit($this->requireHandle(), self::idToC($id), $node);
         if ($time < 0) {
             throw self::lastError();
         }
         return (float)$time;
     }
 
-    public function nextJoin(RocheId $a, RocheId $b): ?float
+    public function nextJoin(KoutenId $a, KoutenId $b): ?float
     {
-        $time = self::ffi()->roche_next_join($this->requireHandle(), self::idToC($a), self::idToC($b));
+        $time = self::ffi()->kouten_next_join($this->requireHandle(), self::idToC($a), self::idToC($b));
         return $time < 0 ? null : (float)$time;
     }
 
@@ -484,7 +566,7 @@ final class RocheDB
     private function requireHandle(): CData
     {
         if ($this->handle === null) {
-            throw new RuntimeException('RocheDB handle is closed');
+            throw new RuntimeException('KoutenDB handle is closed');
         }
         return $this->handle;
     }
@@ -500,9 +582,9 @@ final class RocheDB
         return $arr;
     }
 
-    private static function idToC(RocheId $id): CData
+    private static function idToC(KoutenId $id): CData
     {
-        $c = self::ffi()->new('roche_id');
+        $c = self::ffi()->new('kouten_id');
         $c->parent = $id->parent;
         $c->epoch = $id->epoch;
         $c->seq = $id->seq;
@@ -510,22 +592,22 @@ final class RocheDB
         return $c;
     }
 
-    private static function idFromC(CData $id): RocheId
+    private static function idFromC(CData $id): KoutenId
     {
-        return new RocheId((string)$id->parent, (int)$id->epoch, (int)$id->seq, (float)$id->t_write);
+        return new KoutenId((string)$id->parent, (int)$id->epoch, (int)$id->seq, (float)$id->t_write);
     }
 
     private static function lastError(): RuntimeException
     {
-        $ptr = self::ffi()->roche_last_error();
+        $ptr = self::ffi()->kouten_last_error();
         if ($ptr === null) {
-            $message = 'RocheDB C ABI error';
+            $message = 'KoutenDB C ABI error';
         } elseif (is_string($ptr)) {
             $message = $ptr;
         } else {
             $message = FFI::string($ptr);
         }
-        return new RocheDBException($message === '' ? 'RocheDB C ABI error' : $message);
+        return new KoutenDBException($message === '' ? 'KoutenDB C ABI error' : $message);
     }
 
     /** @param mixed $value */
@@ -534,7 +616,7 @@ final class RocheDB
         try {
             return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         } catch (\JsonException $e) {
-            throw new RocheDBException('failed to encode JSON: ' . $e->getMessage(), previous: $e);
+            throw new KoutenDBException('failed to encode JSON: ' . $e->getMessage(), previous: $e);
         }
     }
 
@@ -544,7 +626,7 @@ final class RocheDB
         try {
             return json_decode($value, true, flags: JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new RocheDBException('failed to decode JSON: ' . $e->getMessage(), previous: $e);
+            throw new KoutenDBException('failed to decode JSON: ' . $e->getMessage(), previous: $e);
         }
     }
 
@@ -564,7 +646,7 @@ final class RocheDB
             'json' => self::CODEC_JSON,
             'nif' => self::CODEC_NIF,
             'bif' => self::CODEC_BIF,
-            default => throw new RocheDBException("unsupported payload codec: {$codec}"),
+            default => throw new KoutenDBException("unsupported payload codec: {$codec}"),
         };
     }
 
@@ -587,9 +669,9 @@ final class RocheDB
         if (self::$ffi === null) {
             $lib = self::resolveLibraryPath($lib);
             self::$ffi = FFI::cdef(self::CDEF, $lib);
-            self::$ffi->roche_init();
-            if ((int)self::$ffi->roche_abi_version() !== self::ABI_VERSION) {
-                throw new RuntimeException('RocheDB ABI version mismatch');
+            self::$ffi->kouten_init();
+            if ((int)self::$ffi->kouten_abi_version() !== self::ABI_VERSION) {
+                throw new RuntimeException('KoutenDB ABI version mismatch');
             }
         }
         return self::$ffi;
@@ -601,20 +683,20 @@ final class RocheDB
             return $lib;
         }
 
-        $envLib = getenv('ROCHEDB_LIB_PATH');
+        $envLib = getenv('KOUTENDB_LIB_PATH');
         if (is_string($envLib) && $envLib !== '') {
             return $envLib;
         }
 
-        $envCore = getenv('ROCHEDB_CORE_DIR');
+        $envCore = getenv('KOUTENDB_CORE_DIR');
         if (is_string($envCore) && $envCore !== '') {
-            return rtrim($envCore, DIRECTORY_SEPARATOR) . '/lib/librochedb.so';
+            return rtrim($envCore, DIRECTORY_SEPARATOR) . '/lib/libkoutendb.so';
         }
 
         $candidates = [
-            __DIR__ . '/../../rochedb/lib/librochedb.so',
-            __DIR__ . '/../../ceresdb/lib/librochedb.so',
-            __DIR__ . '/../lib/librochedb.so',
+            __DIR__ . '/../../koutendb/lib/libkoutendb.so',
+            __DIR__ . '/../../ceresdb/lib/libkoutendb.so',
+            __DIR__ . '/../lib/libkoutendb.so',
         ];
         foreach ($candidates as $candidate) {
             if (is_file($candidate)) {
@@ -622,7 +704,7 @@ final class RocheDB
             }
         }
 
-        return 'librochedb.so';
+        return 'libkoutendb.so';
     }
 
     private const CDEF = <<<'CDEF'
@@ -630,23 +712,23 @@ typedef unsigned long size_t;
 typedef unsigned long uint64_t;
 typedef unsigned int uint32_t;
 
-typedef struct roche_id {
+typedef struct kouten_id {
   uint64_t parent;
   uint32_t epoch;
   uint32_t seq;
   double   t_write;
-} roche_id;
+} kouten_id;
 
-typedef struct roche_hit {
-  roche_id id;
+typedef struct kouten_hit {
+  kouten_id id;
   double   score;
   void    *payload;
   size_t   payload_len;
-} roche_hit;
+} kouten_hit;
 
-typedef struct roche_retrieve_result {
+typedef struct kouten_retrieve_result {
   size_t     len;
-  roche_hit *hits;
+  kouten_hit *hits;
   int        total_vectors;
   int        scanned;
   int        skipped_vectors;
@@ -656,44 +738,47 @@ typedef struct roche_retrieve_result {
   int        estimated_tokens;
   int        fanout_nodes;
   double     candidate_reduction;
-} roche_retrieve_result;
+} kouten_retrieve_result;
 
-typedef struct roche_value {
+typedef struct kouten_value {
   void  *data;
   size_t len;
-} roche_value;
+} kouten_value;
 
-typedef struct roche_batch_result {
+typedef struct kouten_batch_result {
   size_t       len;
-  roche_value *values;
-} roche_batch_result;
+  kouten_value *values;
+} kouten_batch_result;
 
-int         roche_abi_version(void);
-const char *roche_last_error(void);
-void        roche_init(void);
-void       *roche_open(int nodes);
-void       *roche_open_dir(int nodes, const char *dir);
-void       *roche_connect_auth(const char *peers, const char *username, const char *password, const char *auth_token, const char *secret_key, const char *galaxy);
-void        roche_close(void *db);
-int         roche_ring_configure(void *db, const char *ring, double period);
-int         roche_set_galaxy_description(void *db, const char *description);
-int         roche_set_ring_description(void *db, const char *ring, const char *description);
-int         roche_put(void *db, const char *ring, const void *data, size_t len, roche_id *out_id);
-int         roche_put_codec(void *db, const char *ring, const void *data, size_t len, int codec, roche_id *out_id);
-int         roche_put_vec(void *db, const char *ring, const void *data, size_t len, const float *vec, size_t vec_len, roche_id *out_id);
-int         roche_put_vec_codec(void *db, const char *ring, const void *data, size_t len, int codec, const float *vec, size_t vec_len, roche_id *out_id);
-void       *roche_get(void *db, roche_id id, size_t *out_len);
-void       *roche_get_codec(void *db, roche_id id, size_t *out_len, int *out_codec);
-void        roche_free(void *p);
-roche_batch_result *roche_batch_get(void *db, const roche_id *ids, size_t ids_len);
-void        roche_batch_get_free(roche_batch_result *r);
-void       *roche_query(void *db, roche_id id, const char *selection, size_t *out_len);
-void       *roche_read_ring_json(void *db, const char *ring, const char *filter_json, const char *selection, int limit, const char *cursor, int pagination, int page, int page_limit, const char *sort_field, int sort_desc, size_t *out_len);
-roche_retrieve_result *roche_retrieve(void *db, const float *vec, size_t vec_len, const char *ring, int budget, int top_rings, int focus);
-void        roche_retrieve_free(roche_retrieve_result *r);
-void       *roche_atlas(void *db, const float *query_vec, size_t query_vec_len, int max_centroid_dims, size_t *out_len);
-int         roche_locate(void *db, roche_id id, double at);
-double      roche_next_visit(void *db, roche_id id, int node);
-double      roche_next_join(void *db, roche_id a, roche_id b);
+int         kouten_abi_version(void);
+const char *kouten_last_error(void);
+void        kouten_init(void);
+void       *kouten_open(int nodes);
+void       *kouten_open_dir(int nodes, const char *dir);
+void       *kouten_connect_auth(const char *peers, const char *username, const char *password, const char *auth_token, const char *secret_key, const char *galaxy);
+void       *kouten_connect_auth_tls(const char *peers, const char *username, const char *password, const char *auth_token, const char *secret_key, const char *galaxy, int tls, const char *tls_ca_file, const char *tls_server_name, int tls_insecure_skip_verify);
+void        kouten_close(void *db);
+double      kouten_now(void *db);
+void        kouten_advance(void *db, double dt);
+int         kouten_ring_configure(void *db, const char *ring, double period);
+int         kouten_set_galaxy_description(void *db, const char *description);
+int         kouten_set_ring_description(void *db, const char *ring, const char *description);
+int         kouten_put(void *db, const char *ring, const void *data, size_t len, kouten_id *out_id);
+int         kouten_put_codec(void *db, const char *ring, const void *data, size_t len, int codec, kouten_id *out_id);
+int         kouten_put_vec(void *db, const char *ring, const void *data, size_t len, const float *vec, size_t vec_len, kouten_id *out_id);
+int         kouten_put_vec_codec(void *db, const char *ring, const void *data, size_t len, int codec, const float *vec, size_t vec_len, kouten_id *out_id);
+void       *kouten_get(void *db, kouten_id id, size_t *out_len);
+void       *kouten_get_codec(void *db, kouten_id id, size_t *out_len, int *out_codec);
+void        kouten_free(void *p);
+kouten_batch_result *kouten_batch_get(void *db, const kouten_id *ids, size_t ids_len);
+void        kouten_batch_get_free(kouten_batch_result *r);
+void       *kouten_query(void *db, kouten_id id, const char *selection, size_t *out_len);
+void       *kouten_read_ring_json(void *db, const char *ring, const char *filter_json, const char *selection, int limit, const char *cursor, int pagination, int page, int page_limit, const char *sort_field, int sort_desc, size_t *out_len);
+kouten_retrieve_result *kouten_retrieve(void *db, const float *vec, size_t vec_len, const char *ring, int budget, int top_rings, int focus);
+void        kouten_retrieve_free(kouten_retrieve_result *r);
+void       *kouten_atlas(void *db, const float *query_vec, size_t query_vec_len, int max_centroid_dims, size_t *out_len);
+int         kouten_locate(void *db, kouten_id id, double at);
+double      kouten_next_visit(void *db, kouten_id id, int node);
+double      kouten_next_join(void *db, kouten_id a, kouten_id b);
 CDEF;
 }
