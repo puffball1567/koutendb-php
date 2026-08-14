@@ -9,10 +9,11 @@ pretend KoutenDB is an SQL database or an Eloquent model backend.
 ## Status
 
 - Package: [Packagist `koutendb/koutendb`](https://packagist.org/packages/koutendb/koutendb)
+- Current source version: `0.1.3`
 - Current mode: C ABI / FFI wrapper
 - PHP: 8.2+
 - Requires: `ext-ffi`
-- KoutenDB core: local C ABI v2 shared library, KoutenDB core v0.3.0+
+- KoutenDB core: local C ABI v2 shared library; v0.12-compatible build required for persistence/maintenance APIs
 
 ## Install
 
@@ -96,10 +97,10 @@ mounts the KoutenDB core checkout into the container.
 
 | Area | API |
 |---|---|
-| Open / connect | `KoutenDB::open`, `openDir`, `connect`, `connectAuth` |
+| Open / connect | `KoutenDB::open`, `openDir`, `openDirWith`, `connect`, `connectAuth` |
 | TLS connect | `connectAuthTls`, `connectAuthTlsInsecure` |
-| Writes | `put`, `putCodec`, `putJson`, `putNif`, `putBif`, `putVec`, `putVecCodec`, `putJsonVec`, `putNifVec`, `putBifVec` |
-| Reads | `get`, `getEncoded`, `getJson`, `batchGet`, `readRing` |
+| Writes / mutations | `put` and codec/vector helpers, `update`, `updateCodec`, `updateJson`, `remove` |
+| Reads | `get`, `getEncoded`, `getJson`, `exists`, `batchGet`, `readRing` |
 | Payload codecs | `EncodedPayload`, `raw`, `json`, `nif`, `bif` |
 | Projection | `query`, `queryJson` |
 | Retrieval | `retrieve`, `RetrieveResult`, `KoutenHit` |
@@ -108,6 +109,9 @@ mounts the KoutenDB core checkout into the container.
 | Orbit helpers | `locate`, `nextVisit`, `nextJoin` |
 | IDs | `KoutenId`, `KoutenId::parse`, `KoutenId::__toString` |
 | Errors | `KoutenDBException` |
+| Metrics | `metrics`, `checkpointMetrics` |
+| Segment maintenance | `segmentStatus`, `planSegmentMaintenance`, `runSegmentMaintenance`, `segmentMaintenanceStatus`, `recoverSegmentMaintenance` |
+| Generation checkpoints | `createCheckpoint`, `checkpointStatus`, `listCheckpoints`, `cleanupCheckpoints`, `restoreCheckpoint` |
 
 ## TLS
 

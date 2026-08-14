@@ -116,6 +116,26 @@ final class KoutenDB
         return new self($handle);
     }
 
+    public static function openDirWith(
+        string $dir,
+        int $nodes = 8,
+        bool $strongDurability = false,
+        bool $diskBacked = false,
+        ?string $lib = null,
+    ): self {
+        $ffi = self::ffi($lib);
+        $handle = $ffi->kouten_open_dir_options(
+            $nodes,
+            $dir,
+            $strongDurability ? 1 : 0,
+            $diskBacked ? 1 : 0,
+        );
+        if ($handle === null) {
+            throw self::lastError();
+        }
+        return new self($handle);
+    }
+
     public static function connectAuth(
         string $peers,
         string $username = '',
@@ -375,6 +395,47 @@ final class KoutenDB
         }
     }
 
+    public function exists(KoutenId $id): bool
+    {
+        $result = self::ffi()->kouten_exists($this->requireHandle(), self::idToC($id));
+        if ($result < 0) {
+            throw self::lastError();
+        }
+        return $result === 1;
+    }
+
+    public function update(KoutenId $id, string $payload): void
+    {
+        $this->check(self::ffi()->kouten_update(
+            $this->requireHandle(),
+            self::idToC($id),
+            $payload,
+            strlen($payload),
+        ));
+    }
+
+    public function updateCodec(KoutenId $id, string $payload, string $codec): void
+    {
+        $this->check(self::ffi()->kouten_update_codec(
+            $this->requireHandle(),
+            self::idToC($id),
+            $payload,
+            strlen($payload),
+            self::codecCode($codec),
+        ));
+    }
+
+    /** @param mixed $value */
+    public function updateJson(KoutenId $id, mixed $value): void
+    {
+        $this->updateCodec($id, self::encodeJson($value), 'json');
+    }
+
+    public function remove(KoutenId $id): void
+    {
+        $this->check(self::ffi()->kouten_remove($this->requireHandle(), self::idToC($id)));
+    }
+
     /** @param list<KoutenId> $ids @return list<string|null> */
     public function batchGet(array $ids): array
     {
@@ -522,6 +583,129 @@ final class KoutenDB
         }
     }
 
+    public function metrics(string $format = 'key-value'): string
+    {
+        $ffi = self::ffi();
+        $len = $ffi->new('size_t[1]');
+        $ptr = $ffi->kouten_metrics_text(
+            $this->requireHandle(),
+            self::metricsFormatCode($format),
+            FFI::addr($len[0]),
+        );
+        return self::readOwnedText($ptr, $len);
+    }
+
+    /** @return array<string,mixed> */
+    public function segmentStatus(float $staleRatio = 0.25, int $minStaleRecords = 256): array
+    {
+        $ffi = self::ffi();
+        $len = $ffi->new('size_t[1]');
+        $ptr = $ffi->kouten_segment_status_json(
+            $this->requireHandle(), $staleRatio, $minStaleRecords, FFI::addr($len[0]),
+        );
+        return self::readOwnedJson($ptr, $len);
+    }
+
+    /** @param array<string,int|float> $policy @return array<string,mixed> */
+    public function planSegmentMaintenance(array $policy = []): array
+    {
+        return $this->segmentMaintenance(false, $policy);
+    }
+
+    /** @param array<string,int|float> $policy @return array<string,mixed> */
+    public function runSegmentMaintenance(array $policy = []): array
+    {
+        return $this->segmentMaintenance(true, $policy);
+    }
+
+    /** @return array<string,mixed> */
+    public function segmentMaintenanceStatus(): array
+    {
+        $ffi = self::ffi();
+        $len = $ffi->new('size_t[1]');
+        return self::readOwnedJson(
+            $ffi->kouten_segment_maintenance_status_json($this->requireHandle(), FFI::addr($len[0])),
+            $len,
+        );
+    }
+
+    public function recoverSegmentMaintenance(): bool
+    {
+        $ffi = self::ffi();
+        $recovered = $ffi->new('int[1]');
+        $this->check($ffi->kouten_segment_maintenance_recover(
+            $this->requireHandle(), FFI::addr($recovered[0]),
+        ));
+        return (int)$recovered[0] !== 0;
+    }
+
+    /** @return array<string,mixed> */
+    public function createCheckpoint(?string $root = null, ?string $checkpointId = null): array
+    {
+        $ffi = self::ffi();
+        $len = $ffi->new('size_t[1]');
+        return self::readOwnedJson($ffi->kouten_checkpoint_create_json(
+            $this->requireHandle(), $root, $checkpointId, FFI::addr($len[0]),
+        ), $len);
+    }
+
+    /** @return array<string,mixed> */
+    public static function checkpointStatus(string $checkpointDir, ?string $lib = null): array
+    {
+        $ffi = self::ffi($lib);
+        $len = $ffi->new('size_t[1]');
+        return self::readOwnedJson(
+            $ffi->kouten_checkpoint_status_json($checkpointDir, FFI::addr($len[0])), $len,
+        );
+    }
+
+    /** @return array<string,mixed> */
+    public static function listCheckpoints(string $root, ?string $lib = null): array
+    {
+        $ffi = self::ffi($lib);
+        $len = $ffi->new('size_t[1]');
+        return self::readOwnedJson($ffi->kouten_checkpoint_list_json($root, FFI::addr($len[0])), $len);
+    }
+
+    /** @return array<string,mixed> */
+    public static function cleanupCheckpoints(string $root, int $keep, ?string $lib = null): array
+    {
+        $ffi = self::ffi($lib);
+        $len = $ffi->new('size_t[1]');
+        return self::readOwnedJson(
+            $ffi->kouten_checkpoint_cleanup_json($root, $keep, FFI::addr($len[0])), $len,
+        );
+    }
+
+    /** @return array<string,mixed> */
+    public static function restoreCheckpoint(
+        string $checkpointDir,
+        string $dataDir,
+        bool $overwrite = false,
+        ?string $lib = null,
+    ): array {
+        $ffi = self::ffi($lib);
+        $len = $ffi->new('size_t[1]');
+        return self::readOwnedJson($ffi->kouten_checkpoint_restore_json(
+            $checkpointDir, $dataDir, $overwrite ? 1 : 0, FFI::addr($len[0]),
+        ), $len);
+    }
+
+    public static function checkpointMetrics(
+        string $root,
+        string $format = 'key-value',
+        ?string $lib = null,
+    ): string {
+        $ffi = self::ffi($lib);
+        $len = $ffi->new('size_t[1]');
+        return self::readOwnedText(
+            $ffi->kouten_checkpoint_metrics_text(
+                $root, self::metricsFormatCode($format), FFI::addr($len[0]),
+            ),
+            $len,
+        );
+    }
+
     public function now(): float
     {
         return (float)self::ffi()->kouten_now($this->requireHandle());
@@ -554,6 +738,48 @@ final class KoutenDB
     {
         $time = self::ffi()->kouten_next_join($this->requireHandle(), self::idToC($a), self::idToC($b));
         return $time < 0 ? null : (float)$time;
+    }
+
+    /** @param array<string,int|float> $policy @return array<string,mixed> */
+    private function segmentMaintenance(bool $run, array $policy): array
+    {
+        $ffi = self::ffi();
+        $len = $ffi->new('size_t[1]');
+        $arguments = [
+            $this->requireHandle(),
+            (float)($policy['staleRatio'] ?? 0.25),
+            (int)($policy['minStaleRecords'] ?? 256),
+            (int)($policy['maxRings'] ?? 0),
+            (int)($policy['maxBytes'] ?? 0),
+            (int)($policy['maxElapsedMs'] ?? 0),
+            FFI::addr($len[0]),
+        ];
+        $ptr = $run
+            ? $ffi->kouten_segment_maintenance_run_json(...$arguments)
+            : $ffi->kouten_segment_maintenance_plan_json(...$arguments);
+        return self::readOwnedJson($ptr, $len);
+    }
+
+    private static function readOwnedText(?CData $ptr, CData $len): string
+    {
+        if ($ptr === null) {
+            throw self::lastError();
+        }
+        try {
+            return FFI::string($ptr, (int)$len[0]);
+        } finally {
+            self::ffi()->kouten_free($ptr);
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private static function readOwnedJson(?CData $ptr, CData $len): array
+    {
+        $decoded = self::decodeJson(self::readOwnedText($ptr, $len));
+        if (!is_array($decoded)) {
+            throw new KoutenDBException('KoutenDB operation returned non-object JSON');
+        }
+        return $decoded;
     }
 
     private function check(int $code): void
@@ -661,6 +887,16 @@ final class KoutenDB
         };
     }
 
+    private static function metricsFormatCode(string $format): int
+    {
+        return match ($format) {
+            'key-value' => 0,
+            'prometheus' => 1,
+            'openmetrics' => 2,
+            default => throw new KoutenDBException("unsupported metrics format: {$format}"),
+        };
+    }
+
     private static function ffi(?string $lib = null): FFI
     {
         if (!class_exists(FFI::class)) {
@@ -711,6 +947,7 @@ final class KoutenDB
 typedef unsigned long size_t;
 typedef unsigned long uint64_t;
 typedef unsigned int uint32_t;
+typedef long long int64_t;
 
 typedef struct kouten_id {
   uint64_t parent;
@@ -755,9 +992,12 @@ const char *kouten_last_error(void);
 void        kouten_init(void);
 void       *kouten_open(int nodes);
 void       *kouten_open_dir(int nodes, const char *dir);
+void       *kouten_open_dir_options(int nodes, const char *dir, int durability_strong, int disk_backed);
 void       *kouten_connect_auth(const char *peers, const char *username, const char *password, const char *auth_token, const char *secret_key, const char *galaxy);
 void       *kouten_connect_auth_tls(const char *peers, const char *username, const char *password, const char *auth_token, const char *secret_key, const char *galaxy, int tls, const char *tls_ca_file, const char *tls_server_name, int tls_insecure_skip_verify);
 void        kouten_close(void *db);
+void       *kouten_metrics_text(void *db, int format, size_t *out_len);
+void       *kouten_checkpoint_metrics_text(const char *root, int format, size_t *out_len);
 double      kouten_now(void *db);
 void        kouten_advance(void *db, double dt);
 int         kouten_ring_configure(void *db, const char *ring, double period);
@@ -769,6 +1009,10 @@ int         kouten_put_vec(void *db, const char *ring, const void *data, size_t 
 int         kouten_put_vec_codec(void *db, const char *ring, const void *data, size_t len, int codec, const float *vec, size_t vec_len, kouten_id *out_id);
 void       *kouten_get(void *db, kouten_id id, size_t *out_len);
 void       *kouten_get_codec(void *db, kouten_id id, size_t *out_len, int *out_codec);
+int         kouten_exists(void *db, kouten_id id);
+int         kouten_update(void *db, kouten_id id, const void *data, size_t len);
+int         kouten_update_codec(void *db, kouten_id id, const void *data, size_t len, int codec);
+int         kouten_remove(void *db, kouten_id id);
 void        kouten_free(void *p);
 kouten_batch_result *kouten_batch_get(void *db, const kouten_id *ids, size_t ids_len);
 void        kouten_batch_get_free(kouten_batch_result *r);
@@ -777,6 +1021,16 @@ void       *kouten_read_ring_json(void *db, const char *ring, const char *filter
 kouten_retrieve_result *kouten_retrieve(void *db, const float *vec, size_t vec_len, const char *ring, int budget, int top_rings, int focus);
 void        kouten_retrieve_free(kouten_retrieve_result *r);
 void       *kouten_atlas(void *db, const float *query_vec, size_t query_vec_len, int max_centroid_dims, size_t *out_len);
+void       *kouten_segment_status_json(void *db, double stale_ratio, int min_stale_records, size_t *out_len);
+void       *kouten_segment_maintenance_plan_json(void *db, double stale_ratio, int min_stale_records, int max_rings, int64_t max_bytes, int64_t max_elapsed_ms, size_t *out_len);
+void       *kouten_segment_maintenance_run_json(void *db, double stale_ratio, int min_stale_records, int max_rings, int64_t max_bytes, int64_t max_elapsed_ms, size_t *out_len);
+void       *kouten_segment_maintenance_status_json(void *db, size_t *out_len);
+int         kouten_segment_maintenance_recover(void *db, int *out_recovered);
+void       *kouten_checkpoint_create_json(void *db, const char *root, const char *checkpoint_id, size_t *out_len);
+void       *kouten_checkpoint_status_json(const char *checkpoint_dir, size_t *out_len);
+void       *kouten_checkpoint_list_json(const char *root, size_t *out_len);
+void       *kouten_checkpoint_cleanup_json(const char *root, int keep, size_t *out_len);
+void       *kouten_checkpoint_restore_json(const char *checkpoint_dir, const char *data_dir, int overwrite, size_t *out_len);
 int         kouten_locate(void *db, kouten_id id, double at);
 double      kouten_next_visit(void *db, kouten_id id, int node);
 double      kouten_next_join(void *db, kouten_id a, kouten_id b);

@@ -14,6 +14,21 @@ function assert_true(bool $value, string $message): void
     }
 }
 
+function remove_tree(string $path): void
+{
+    if (!is_dir($path)) {
+        return;
+    }
+    foreach (new FilesystemIterator($path) as $entry) {
+        if ($entry->isDir() && !$entry->isLink()) {
+            remove_tree($entry->getPathname());
+        } else {
+            unlink($entry->getPathname());
+        }
+    }
+    rmdir($path);
+}
+
 $db = KoutenDB::open(8);
 $db->setGalaxyDescription('PHP test galaxy');
 $db->setRingDescription('docs/php', 'PHP driver documents');
@@ -72,4 +87,43 @@ $db->advance(1.5);
 assert_true($db->now() - $t0 >= 1.5 - 1e-9, 'advance moves the clock');
 
 $db->close();
+
+$suffix = getmypid() . '-' . str_replace('.', '', (string)microtime(true));
+$dataDir = sys_get_temp_dir() . '/koutendb-php-v012-' . $suffix;
+$checkpointRoot = $dataDir . '-checkpoints';
+$restoredDir = $dataDir . '-restored';
+mkdir($dataDir, 0700, true);
+$disk = KoutenDB::openDirWith($dataDir, nodes: 1, strongDurability: true, diskBacked: true);
+$mutableId = $disk->put('docs/mutable', 'before');
+assert_true($disk->exists($mutableId), 'exists live id');
+$disk->updateJson($mutableId, ['state' => 'after']);
+assert_true($disk->getEncoded($mutableId)?->codec === 'json', 'update codec');
+assert_true(str_contains($disk->metrics('prometheus'), 'koutendb_items'), 'metrics');
+$policy = [
+    'staleRatio' => 0,
+    'minStaleRecords' => 0,
+    'maxRings' => 1,
+    'maxBytes' => 1048576,
+    'maxElapsedMs' => 1000,
+];
+assert_true(isset($disk->planSegmentMaintenance($policy)['decisions']), 'maintenance plan');
+assert_true(isset($disk->runSegmentMaintenance($policy)['decisions']), 'maintenance run');
+assert_true(isset($disk->segmentStatus(0, 0)['rings']), 'segment status');
+assert_true(!$disk->recoverSegmentMaintenance(), 'no interrupted maintenance');
+assert_true($disk->createCheckpoint($checkpointRoot, 'php-1')['verified'] === true, 'checkpoint create');
+assert_true(KoutenDB::checkpointStatus($checkpointRoot . '/php-1')['reason'] === 'verified', 'checkpoint status');
+assert_true(KoutenDB::listCheckpoints($checkpointRoot)['count'] === 1, 'checkpoint list');
+assert_true(str_contains(KoutenDB::checkpointMetrics($checkpointRoot, 'openmetrics'), '# EOF'), 'checkpoint metrics');
+$disk->close();
+
+KoutenDB::restoreCheckpoint($checkpointRoot . '/php-1', $restoredDir);
+$restored = KoutenDB::openDirWith($restoredDir, nodes: 1, strongDurability: true, diskBacked: true);
+assert_true($restored->exists($mutableId), 'restored id');
+$restored->remove($mutableId);
+assert_true(!$restored->exists($mutableId), 'removed id');
+$restored->close();
+
+remove_tree($dataDir);
+remove_tree($checkpointRoot);
+remove_tree($restoredDir);
 echo "PHP driver OK\n";
