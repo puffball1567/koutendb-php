@@ -7,7 +7,7 @@ use FFI;
 use FFI\CData;
 use RuntimeException;
 
-final class KoutenDBException extends RuntimeException
+class KoutenDBException extends RuntimeException
 {
 }
 
@@ -18,12 +18,18 @@ final class KoutenId
         public readonly int $epoch,
         public readonly int $seq,
         public readonly float $tWrite,
+        public readonly ?float $period = null,
+        public readonly ?float $head = null,
     ) {
     }
 
     public static function parse(string $value): self
     {
         $parts = explode(':', $value);
+        if (count($parts) === 6) {
+            require_once __DIR__ . '/TcpId.php';
+            return TcpId::fromFields($parts);
+        }
         if (count($parts) !== 4) {
             throw new KoutenDBException("invalid KoutenDB id '{$value}': expected parent:epoch:seq:tWrite");
         }
@@ -42,6 +48,10 @@ final class KoutenId
 
     public function __toString(): string
     {
+        if ($this->period !== null && $this->head !== null) {
+            require_once __DIR__ . '/TcpId.php';
+            return implode(':', TcpId::fields($this));
+        }
         return "{$this->parent}:{$this->epoch}:{$this->seq}:{$this->tWrite}";
     }
 }
@@ -77,6 +87,48 @@ final class EncodedPayload
 
 final class KoutenDB
 {
+    /** Native TCP; no FFI extension or libkoutendb is loaded. */
+    public static function connectTcp(
+        array $peers,
+        float $timeout = 3.0,
+        float $readTimeout = 5.0,
+        float $writeTimeout = 5.0,
+        #[\SensitiveParameter] array $options = [],
+    ): TcpClient {
+        require_once __DIR__ . '/TcpClient.php';
+        return new TcpClient($peers, $timeout, $readTimeout, $writeTimeout, $options);
+    }
+
+    public static function connectTcpAuth(
+        array $peers,
+        string $username = '',
+        #[\SensitiveParameter] string $password = '',
+        #[\SensitiveParameter] string $authToken = '',
+        #[\SensitiveParameter] string $secretKey = '',
+        string $galaxy = '',
+        float $timeout = 3.0,
+        float $readTimeout = 5.0,
+        float $writeTimeout = 5.0,
+        #[\SensitiveParameter] array $options = [],
+    ): TcpClient {
+        return self::connectTcp($peers, $timeout, $readTimeout, $writeTimeout,
+            array_merge($options, compact('username', 'password', 'authToken', 'secretKey', 'galaxy')));
+    }
+
+    public static function connectTcpTls(
+        array $peers,
+        string $tlsCaFile = '',
+        string $tlsServerName = '',
+        bool $tlsInsecureSkipVerify = false,
+        float $timeout = 3.0,
+        float $readTimeout = 5.0,
+        float $writeTimeout = 5.0,
+        #[\SensitiveParameter] array $options = [],
+    ): TcpClient {
+        return self::connectTcp($peers, $timeout, $readTimeout, $writeTimeout,
+            array_merge($options, compact('tlsCaFile', 'tlsServerName', 'tlsInsecureSkipVerify'), ['tls' => true]));
+    }
+
     private const ABI_VERSION = 2;
     private const CODEC_RAW = 0;
     private const CODEC_JSON = 1;
