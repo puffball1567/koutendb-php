@@ -5,9 +5,12 @@ Native TCP uses PHP streams to connect to `koutend`. It needs neither
 SECRET_KEY authentication additionally requires `ext-sodium`. These are PHP
 extensions, not KoutenDB native bindings. PHP must be 64-bit and version 8.2+.
 
-This feature is currently unreleased. The published 0.1.3 package remains FFI-only.
-Use a Composer path repository pointing to this checkout to test this branch.
-After publication the package name remains `koutendb/koutendb`.
+Native TCP is available in `koutendb/koutendb` starting with version `0.2.0`.
+The `0.1.x` releases remain FFI-only.
+
+```sh
+composer require koutendb/koutendb:^0.2
+```
 
 ## Choose A Transport
 

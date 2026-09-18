@@ -10,25 +10,24 @@ pretend KoutenDB is an SQL database or an Eloquent model backend.
 ## Status
 
 - Package: [Packagist `koutendb/koutendb`](https://packagist.org/packages/koutendb/koutendb)
-- Current source version: `0.1.3`
-- Released version above: C ABI / FFI wrapper. Native TCP is an unreleased addition in this branch.
+- Current source version: `0.2.0`
+- Transports: native TCP for server access; C ABI / FFI for embedded and existing remote APIs.
 - PHP: 8.2+
 - TCP requires no `ext-ffi`, `ext-sockets`, or `libkoutendb.so`; 64-bit PHP is required.
 - FFI mode requires `ext-ffi` and `libkoutendb.so`.
-- KoutenDB core: local C ABI v2 shared library; v0.12-compatible build required for persistence/maintenance APIs
+- Validated with KoutenDB v0.14.3: wire v1 for native TCP, C ABI v2 for FFI.
 
 ## Install
 
 Install from Packagist:
 
 ```sh
-composer require koutendb/koutendb:^0.1
+composer require koutendb/koutendb:^0.2
 ```
 
 For local development from a checkout, you can still use a Composer path repository.
 
-For the unreleased native TCP implementation, use this branch via a Composer
-path repository. The current `0.1.3` package does not include native TCP.
+Native TCP is available starting with `0.2.0`; `0.1.x` remains FFI-only.
 See [Native TCP](docs/native-tcp.md) for server setup, authentication, TLS,
 Laravel configuration, failure semantics, and tests.
 
@@ -49,8 +48,8 @@ Build the KoutenDB shared library first:
 ```sh
 git clone https://github.com/puffball1567/koutendb.git
 cd koutendb
-nimble install -y
-nim c --app:lib -d:release --nimcache:/tmp/nimcache_kouten_capi -o:lib/libkoutendb.so src/koutendb_capi.nim
+nimble install -y --depsOnly
+bash scripts/build_capi.sh
 ```
 
 At runtime, make sure PHP can find both the driver and `libkoutendb.so`:
@@ -102,7 +101,7 @@ $db->close();
 
 ```bash
 cd /path/to/koutendb
-nim c --app:lib -d:release --nimcache:/tmp/nimcache_kouten_capi -o:lib/libkoutendb.so src/koutendb_capi.nim
+bash scripts/build_capi.sh
 ```
 
 From this driver repository:
@@ -115,6 +114,13 @@ KOUTENDB_CORE_DIR=/path/to/koutendb ./docker-test.sh
 mounts the KoutenDB core checkout into the container.
 
 ## Current API
+
+Native TCP exposes `connectTcp`, `connectTcpAuth`, and `connectTcpTls`, returning
+`TcpClient` with `put`, `putJson`, `putCodec`, `get`, `getJson`, `getEncoded`,
+`query`, `queryJson`, `health`, and `close`. See the
+[native transport guide](docs/native-tcp.md) for its options and exceptions.
+
+The following table describes the existing FFI backend:
 
 | Area | API |
 |---|---|
