@@ -194,18 +194,32 @@ The existing FFI test remains `php -d ffi.enable=1 tests/driver_test.php` with a
 compatible library. The native API is intentionally limited; full admin APIs,
 pooling, automatic write deduplication, PDO, and Eloquent are not included.
 
-### Local Validation Record
+### Validation Record
 
-Validated on 2026-09-16 against a fresh build of KoutenDB's v0.14.3 source:
+Validated on 2026-09-18. All four jobs passed in the
+[PHP compatibility matrix](https://github.com/puffball1567/koutendb-php/actions/runs/35305266253).
 
-- PHP 8.3.13 without FFI: unit validation, a separate Composer consumer install,
-  27 scripted protocol scenarios, and six real-server modes passed.
-- Real modes: plaintext, password, token, SECRET_KEY, TLS, and TLS + SECRET_KEY.
-- Existing FFI contract passed with the locally available PHP 8.1 runtime and
-  the v0.14.3 C ABI library. This is supplemental regression evidence, not a
-  claim of supported PHP 8.1 deployment.
-- PHP 8.2/8.3 native CI jobs are prepared. GitHub Actions has not been run for
-  this branch. Merge the matching core harness first.
-- The Docker rerun was blocked while extracting the base image by insufficient
-  Docker storage. The PHP version matrix is being verified directly in CI.
-- Publarish application-level integration has not been exercised here.
+| Runtime | Native TCP without FFI | Existing FFI regression |
+| --- | --- | --- |
+| PHP 8.2 / Ubuntu | PASS | PASS |
+| PHP 8.3 / Ubuntu | PASS | PASS |
+
+Each native job verifies Composer installation and input validation without FFI,
+then runs 27 scripted protocol scenarios and six real-server modes: plaintext,
+password, token, SECRET_KEY, TLS, and TLS + SECRET_KEY. Credential redaction is
+checked with exception argument capture enabled, including stack traces. Each
+FFI job builds the v0.14.3 C ABI and runs the existing driver tests and embedded
+example. The native jobs pin core commit
+`e36b424bcfd9cd0dfa24ae121f4b4dd028b0eaac`, which adds the shared harness without
+changing the v0.14.3 server runtime.
+
+PHP 8.3.13 also passed the complete native suite locally and a separate Composer
+consumer installation using a path repository. The core harness was merged in
+[core PR #136](https://github.com/puffball1567/koutendb/pull/136) after its Linux
+and macOS CI passed.
+
+The local Docker rerun was blocked by insufficient Docker storage during base
+image extraction; it is not counted as a passed test. The matrix above ran
+directly on Ubuntu CI runners. Real-server scenarios use one node; redirect
+behavior uses scripted peers. Publarish application-level integration has not
+been exercised here.
