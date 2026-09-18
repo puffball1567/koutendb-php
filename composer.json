@@ -1,6 +1,6 @@
 {
   "name": "koutendb/koutendb",
-  "description": "PHP FFI driver for KoutenDB",
+  "description": "PHP driver for KoutenDB with native TCP and optional embedded FFI",
   "type": "library",
   "license": "Apache-2.0",
   "homepage": "https://github.com/puffball1567/koutendb",
@@ -17,10 +17,15 @@
     "issues": "https://github.com/puffball1567/koutendb-php/issues"
   },
   "require": {
-    "php": ">=8.2",
-    "ext-ffi": "*"
+    "php": ">=8.2"
+  },
+  "suggest": {
+    "ext-ffi": "Required only for the embedded and existing FFI connection APIs",
+    "ext-openssl": "Required for native TCP TLS connections",
+    "ext-sodium": "Required for native TCP secret-key authentication"
   },
   "autoload": {
+    "files": ["src/KoutenDB.php", "src/TcpExceptions.php"],
     "psr-4": {
       "KoutenDB\\": "src/"
     }
